@@ -104,7 +104,7 @@ def paper_trade_test():
     print("\nTesting paper trading simulation...")
 
     # Use the exact instrument key format from the working example
-    symbol = 'NSE_EQ|INE669E01016' # Using the symbol from the example
+    symbol = 'NSE_EQ|INE040A01034' # Using the symbol from the example
     quantity = 1
 
     print(f"Getting current price for {symbol}...")

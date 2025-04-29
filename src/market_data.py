@@ -57,6 +57,7 @@ def get_current_price(symbol):
 
     market_api = upstox_client.MarketQuoteApi(api_client)
     api_version = '2.0'
+    print(f"Fetching LTP for symbol: {symbol} using API version: {api_version}")
 
     try:
         response = market_api.ltp(symbol, api_version)

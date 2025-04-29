@@ -1,180 +1,543 @@
-import google.generativeai as genai
+# src/gemini.py
+import google.genai as genai
+# Explicitly import necessary types
+from google.genai.types import (
+    Tool, FunctionDeclaration, FunctionResponse, Part,
+    GenerateContentConfig, Content # Added Content for history management
+)
 import json
 import os
-from . import market_data, trading
+import csv
+import requests
+from . import market_data, trading # Assuming these modules exist
 
-def load_gemini_api_key():
-    config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.json')
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-    return config.get("gemini_api_key")
-
-def setup_gemini():
-    """Set up Gemini model with API key"""
-    api_key = load_gemini_api_key()
-    genai.configure(api_key=api_key)
-    #return genai.GenerativeModel('gemini-2.5-pro-exp-03-25')
-    return genai.GenerativeModel('gemini-2.5-flash-preview-04-17')
-
-def process_function_calls(function_text):
-    """Parse and process function calls from Gemini's response"""
-    # Function call parsing logic
-    # This is a simplified example - in a real implementation, you'd need to
-    # parse the function name and arguments from the text
-    
-    if "get_market_data" in function_text:
-        # Extract parameters (simplified)
-        symbol = "NSE_RELIANCE"  # Default example
-        if "symbol:" in function_text:
-            start = function_text.find("symbol:") + 7
-            end = function_text.find(",", start)
-            if end == -1:
-                end = function_text.find(")", start)
-            symbol = function_text[start:end].strip().strip('"\'')
-        
-        days = 30
-        if "days:" in function_text:
-            start = function_text.find("days:") + 5
-            end = function_text.find(",", start)
-            if end == -1:
-                end = function_text.find(")", start)
-            days = int(function_text[start:end].strip())
-        
-        return {"function": "get_market_data", "result": market_data.get_market_data(symbol, days=days)}
-    
-    elif "place_buy_order" in function_text:
-        # Extract parameters (simplified)
-        symbol = "NSE_RELIANCE"
-        if "symbol:" in function_text:
-            start = function_text.find("symbol:") + 7
-            end = function_text.find(",", start)
-            symbol = function_text[start:end].strip().strip('"\'')
-        
-        quantity = 1
-        if "quantity:" in function_text:
-            start = function_text.find("quantity:") + 9
-            end = function_text.find(",", start)
-            if end == -1:
-                end = function_text.find(")", start)
-            quantity = int(function_text[start:end].strip())
-        
-        return {"function": "place_buy_order", "result": trading.place_buy_order(symbol, quantity)}
-    
-    elif "place_sell_order" in function_text:
-        # Extract parameters (simplified)
-        symbol = "NSE_RELIANCE"
-        if "symbol:" in function_text:
-            start = function_text.find("symbol:") + 7
-            end = function_text.find(",", start)
-            symbol = function_text[start:end].strip().strip('"\'')
-        
-        quantity = 1
-        if "quantity:" in function_text:
-            start = function_text.find("quantity:") + 9
-            end = function_text.find(",", start)
-            if end == -1:
-                end = function_text.find(")", start)
-            quantity = int(function_text[start:end].strip())
-        
-        return {"function": "place_sell_order", "result": trading.place_sell_order(symbol, quantity)}
-    
-    elif "get_portfolio" in function_text:
-        return {"function": "get_portfolio", "result": trading.get_portfolio()}
-
-    elif "get_current_price" in function_text:
-        # Extract the symbol argument
-        symbol = None
-        if "symbol:" in function_text:
-            start = function_text.find("symbol:") + len("symbol:")
-            # find end of value at comma or closing paren
-            end = function_text.find(",", start)
-            if end == -1:
-                end = function_text.find(")", start)
-            symbol = function_text[start:end].strip().strip('"\'')
-
-        # Call your market_data function
-        price = market_data.get_current_price(symbol)
-        return {"function": "get_current_price", "result": price}
-
-    return None
-
-def trading_assistant(user_input):
-    """Process user input and generate response using Gemini"""
-    model = setup_gemini()
-    
-    # First, let's give context to the model
-    system_prompt = """
-    You are a trading assistant that helps users analyze stocks and execute trades on NSE India.
-
-    Important: For any stock-related query, get the ISIN code if not provided.
-    The symbol format for NSE stocks should be: NSE_EQ_<SYMBOL>
-    Example: For Reliance with ISIN INE002A01018, use "NSE_EQ|INE002A01018"
-
-    Available Functions:
-
-    1. get_market_data(symbol: str, days: int = 30)
-       Input:
+# --- Function Definitions for Gemini ---
+# (Keep your wrapper functions: get_market_data_wrapper, etc.)
+# ... (wrapper functions remain the same) ...
+def get_market_data_wrapper(symbol: str, days: int = 30):
+    """
+    Retrieves historical market data for a given NSE stock symbol.
+    Input:
        - symbol: NSE stock symbol (format: NSE_EQ|<isin_code>)
        - days: Number of days of historical data (default 30)
-       Returns: Historical market data for analysis
+    Returns: Historical market data for analysis.
+    """
+    print(f"--- Calling get_market_data(symbol={symbol}, days={days}) ---")
+    return market_data.get_market_data(symbol=symbol, days=days)
 
-    2. place_buy_order(symbol: str, quantity: int)
-       Input:
+def place_buy_order_wrapper(symbol: str, quantity: int):
+    """
+    Places a buy order for a specified quantity of an NSE stock.
+    Input:
        - symbol: NSE stock symbol (format: NSE_EQ|<isin_code>)
        - quantity: Number of shares to buy
-       Returns: Order confirmation details
+    Returns: Order confirmation details.
+    """
+    print(f"--- Calling place_buy_order(symbol={symbol}, quantity={quantity}) ---")
+    return trading.place_buy_order(symbol=symbol, quantity=quantity)
 
-    3. place_sell_order(symbol: str, quantity: int)
-       Input:
+def place_sell_order_wrapper(symbol: str, quantity: int):
+    """
+    Places a sell order for a specified quantity of an NSE stock.
+    Input:
        - symbol: NSE stock symbol (format: NSE_EQ|<isin_code>)
        - quantity: Number of shares to sell
-       Returns: Order confirmation details
-
-    4. get_portfolio()
-       Returns: Current portfolio holdings
-
-    5. get_current_price(symbol: str)
-       Input:
-       - symbol: NSE stock symbol (format: NSE_EQ|<isin_code>)
-       Returns: Current market price
-
-    Function Call Format:
-    FUNCTION: function_name(parameter1: value1, parameter2: value2)
-
-    Always verify the ISIN and construct proper NSE_EQ symbol before making function calls.
-    After getting results, provide your analysis or confirmation.
+    Returns: Order confirmation details.
     """
+    print(f"--- Calling place_sell_order(symbol={symbol}, quantity={quantity}) ---")
+    return trading.place_sell_order(symbol=symbol, quantity=quantity)
+
+def get_portfolio_wrapper():
+    """
+    Retrieves the current user's portfolio holdings.
+    Returns: Current portfolio holdings.
+    """
+    print("--- Calling get_portfolio() ---")
+    return trading.get_portfolio()
+
+def get_current_price_wrapper(symbol: str):
+    """
+    Retrieves the current market price for a given NSE stock symbol.
+    Input:
+       - symbol: NSE stock symbol (format: NSE_EQ|<isin_code>)
+    Returns: Current market price.
+    """
+    print(f"--- Calling get_current_price(symbol={symbol}) ---")
+    return market_data.get_current_price(symbol=symbol)
+
+
+def get_isin_for_symbol_wrapper(stock_symbol: str, exchange: str = None):
+    """
+    Retrieves the ISIN for a given stock symbol using the FMP API.
+
+    Args:
+        stock_symbol: The stock ticker symbol (e.g., 'AAPL').
+        exchange: Optional specific stock exchange (e.g., 'NASDAQ').
+
+    Returns:
+        A dictionary containing the ISIN if found, or an error message.
+        Example success: {"isin": "US0378331005"}
+        Example not found: {"error": "ISIN not found for symbol AAPL on NASDAQ"}
+        Example API error: {"error": "API request failed: [reason]"}
+    """
+    FMP_API_KEY = os.environ.get("FMP_API_KEY", "2m4oRMEn5iRCIHabFCuOp4JdPshLqyGO")
+    BASE_URL = "https://financialmodelingprep.com/api"
+    SEARCH_ENDPOINT = "/v3/search"
+    if not FMP_API_KEY or FMP_API_KEY == "YOUR_DEFAULT_API_KEY_FOR_TESTING":
+         return {"error": "FMP API key not configured on the backend."}
+
+    api_url = f"{BASE_URL}{SEARCH_ENDPOINT}"
+    params = {
+        'query': stock_symbol,
+        'limit': 5, # Limit results to avoid excessive data
+        'apikey': FMP_API_KEY
+    }
+    if exchange:
+        params['exchange'] = exchange
+
+    print(f"--- Executing Tool: get_isin_for_symbol ---")
+    print(f"   Symbol: {stock_symbol}, Exchange: {exchange}")
+
+    try:
+        response = requests.get(api_url, params=params)
+        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        data = response.json()
+
+        if not data:
+            not_found_msg = f"No results found for symbol '{stock_symbol}'"
+            if exchange:
+                not_found_msg += f" on exchange '{exchange}'"
+            print(f"   Result: {not_found_msg}")
+            return {"error": not_found_msg}
+
+        # Find the exact match if possible, preferring the specified exchange
+        found_isin = None
+        for security in data:
+            if security.get('symbol') == stock_symbol and security.get('isin'):
+                 # If exchange was specified, prioritize match on that exchange
+                if exchange and security.get('exchangeShortName') == exchange:
+                    found_isin = security['isin']
+                    break 
+                elif not exchange:
+                    found_isin = security['isin']
+                    break
+
+
+        if found_isin:
+            print(f"   Result: Found ISIN {found_isin}")
+            return {"isin": found_isin}
+        else:
+            not_found_msg = f"ISIN not found within results for exact symbol '{stock_symbol}'"
+            if exchange:
+                 not_found_msg += f" on exchange '{exchange}'"
+            print(f"   Result: {not_found_msg}")
+            return {"error": not_found_msg}
+
+    except requests.exceptions.HTTPError as http_err:
+        error_msg = f"API request failed: {http_err}"
+        print(f"   Error: {error_msg}")
+        return {"error": error_msg}
+    except requests.exceptions.RequestException as req_err:
+        error_msg = f"API connection error: {req_err}"
+        print(f"   Error: {error_msg}")
+        return {"error": error_msg}
+    except ValueError as json_err: # Includes JSONDecodeError
+        error_msg = f"Failed to parse API response: {json_err}"
+        print(f"   Error: {error_msg}")
+        return {"error": error_msg}
+    except Exception as e:
+        error_msg = f"An unexpected error occurred: {e}"
+        print(f"   Error: {error_msg}")
+        return {"error": error_msg}
     
-    # Send the user input to Gemini
-    response = model.generate_content([
-        system_prompt,
-        user_input
-    ])
+def get_isin_from_csv_wrapper(symbol: str):
+    """
+    Retrieves the ISIN code for a given NSE stock symbol from the local CSV file.
+    """
+    csv_path = os.path.join(os.path.dirname(__file__), '..', 'NSE-cm03MAY2021bhav.csv')
     
-    response_text = response.text
+    print(f"--- Executing Tool: get_isin_from_csv ---")
+    print(f"   Symbol: {symbol}")
     
-    # Check if the response contains function calls
-    if "FUNCTION:" in response_text:
-        # Extract function calls
-        start_idx = response_text.find("FUNCTION:")
-        end_idx = response_text.find("\n", start_idx)
-        if end_idx == -1:
-            end_idx = len(response_text)
+    try:
+        # Check if file exists
+        if not os.path.exists(csv_path):
+            error_msg = f"CSV file not found at {csv_path}"
+            print(f"   Error: {error_msg}")
+            return {"error": error_msg}
         
-        function_text = response_text[start_idx:end_idx]
+        # Read the CSV file
+        symbol = symbol.upper()  # Convert to uppercase for case-insensitive comparison
         
-        # Process the function call
-        function_result = process_function_calls(function_text)
+        # First check the file format by examining the first few lines
+        with open(csv_path, 'r') as file:
+            first_lines = [file.readline().strip() for _ in range(5)]
         
-        if function_result:
-            # Send the function result back to Gemini for interpretation
-            final_response = model.generate_content([
-                system_prompt,
-                user_input,
-                f"Function result for {function_result['function']}:\n{json.dumps(function_result['result'], default=str)}"
-            ])
+        # Check if this is a semicolon or comma separated file
+        delimiter = ',' if ',' in first_lines[0] else ';'
+        
+        # Try to open and read the file with the correct delimiter
+        with open(csv_path, 'r') as file:
+            sample = file.read(4096)  # Read a sample to determine format
             
-            return final_response.text
-    
-    # If no function calls or processing failed, return the original response
-    return response_text 
+            # Reset file pointer
+            file.seek(0)
+            
+            # Try different delimiters if comma doesn't work
+            if delimiter == ',' and sample.count(',') < 5:
+                if sample.count(';') > 5:
+                    delimiter = ';'
+                elif sample.count('\t') > 5:
+                    delimiter = '\t'
+            
+            # Create reader with detected delimiter
+            csv_reader = csv.reader(file, delimiter=delimiter)
+            
+            # Try to read headers
+            headers = next(csv_reader)
+            print(f"   Using delimiter: '{delimiter}'")
+            print(f"   Headers found: {headers}")
+            
+            # Since we don't know the structure, let's try to find columns with 'SYMBOL' or 'ISIN' in them
+            symbol_idx = None
+            isin_idx = None
+            
+            # Try to find the symbol column
+            for i, col in enumerate(headers):
+                if symbol.upper() in col.upper():
+                    # If the symbol itself is in a header, this might be a column-name style CSV
+                    continue
+                    
+                if any(keyword in col.upper() for keyword in ['SYMBOL', 'NAME', 'TICKER']):
+                    symbol_idx = i
+                    print(f"   Found symbol column: {col} at index {i}")
+                    break
+            
+            # Try to find the ISIN column
+            for i, col in enumerate(headers):
+                if 'ISIN' in col.upper() or 'CODE' in col.upper():
+                    isin_idx = i
+                    print(f"   Found ISIN column: {col} at index {i}")
+                    break
+            
+            # If we couldn't find columns by name, try to determine by examining data
+            if symbol_idx is None or isin_idx is None:
+                print("   Trying to determine columns by data patterns...")
+                
+                # Read a few rows to analyze
+                rows = [next(csv_reader) for _ in range(10) if csv_reader]
+                
+                # Look for columns that match ISIN pattern (12 alphanumeric chars)
+                for i, col in enumerate(headers):
+                    # Check if column values match ISIN pattern
+                    isin_pattern = all(len(row[i]) == 12 and row[i].isalnum() for row in rows if i < len(row))
+                    if isin_pattern:
+                        isin_idx = i
+                        print(f"   Found likely ISIN column at index {i}")
+                        break
+                
+                # Look for columns that might be symbols (typically shorter, all caps)
+                if symbol_idx is None:
+                    for i, col in enumerate(headers):
+                        # Skip ISIN column if already found
+                        if i == isin_idx:
+                            continue
+                        # Check if column values look like symbols
+                        symbol_pattern = all(len(row[i]) < 20 and not row[i].isdigit() for row in rows if i < len(row))
+                        if symbol_pattern:
+                            symbol_idx = i
+                            print(f"   Found likely symbol column at index {i}")
+                            break
+            
+            # If still not found, print detailed debug info
+            if symbol_idx is None or isin_idx is None:
+                print("   Could not identify columns automatically. File contents sample:")
+                file.seek(0)
+                for i, line in enumerate(file):
+                    if i < 5:  # Print first 5 lines
+                        print(f"   Line {i}: {line.strip()}")
+                
+                error_msg = "CSV file format is not valid, couldn't identify symbol and ISIN columns"
+                print(f"   Error: {error_msg}")
+                return {"error": error_msg}
+            
+            # Reset file pointer to search for the symbol
+            file.seek(0)
+            next(csv_reader)  # Skip header row
+            
+            # Search for the symbol
+            for row in csv_reader:
+                if len(row) > max(symbol_idx, isin_idx):
+                    csv_symbol = row[symbol_idx].strip().upper()
+                    if csv_symbol == symbol:
+                        isin = row[isin_idx]
+                        print(f"   Result: Found ISIN {isin} for symbol {symbol}")
+                        return {"isin": isin, "symbol": symbol, "nse_format": f"NSE_EQ|{isin}"}
+            
+            # Symbol not found
+            error_msg = f"Symbol '{symbol}' not found in CSV file"
+            print(f"   Result: {error_msg}")
+            return {"error": error_msg}
+            
+    except Exception as e:
+        error_msg = f"Error reading CSV file: {str(e)}"
+        print(f"   Error: {error_msg}")
+        return {"error": error_msg}
+
+# --- Gemini Configuration and Interaction ---
+
+def load_gemini_api_key():
+    """Loads the Gemini API key from the config file."""
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.json')
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        api_key = config.get("gemini_api_key")
+        if not api_key:
+            print("Warning: gemini_api_key not found in config.json. "
+                  "Ensure GOOGLE_API_KEY environment variable is set.")
+        return api_key
+    except FileNotFoundError:
+        print(f"Info: Config file not found at {config_path}. "
+              "Ensure GOOGLE_API_KEY environment variable is set.")
+        return None
+    except json.JSONDecodeError:
+        raise ValueError(f"Error decoding JSON from {config_path}")
+
+def setup_environment_api_key():
+    """
+    Ensures the Gemini API key is available as an environment variable.
+    """
+    api_key = load_gemini_api_key()
+    if not os.getenv('GOOGLE_API_KEY'):
+        if api_key:
+            print("Info: Setting GOOGLE_API_KEY environment variable from config file.")
+            os.environ['GOOGLE_API_KEY'] = api_key
+        else:
+            raise ValueError("Gemini API Key configuration error: "
+                             "Set the GOOGLE_API_KEY environment variable or "
+                             "provide 'gemini_api_key' in config/config.json.")
+    print("Gemini client configured (using GOOGLE_API_KEY environment variable).")
+
+
+# Define the function declarations
+function_declarations = [
+    FunctionDeclaration(
+        name="get_market_data",
+        description="Retrieves historical market data for a given NSE stock symbol.",
+        parameters={
+            "type": "object",
+            "properties": {
+                'symbol': {"type": "string", "description": "NSE stock symbol (format: NSE_EQ|<isin_code>)"},
+                'days': {"type": "integer", "description": "Number of days of historical data (default 30)"}
+            },
+            "required": ['symbol']
+        }
+    ),
+    # ... (other function declarations remain the same) ...
+    FunctionDeclaration(
+        name="place_buy_order",
+        description="Places a buy order for a specified quantity of an NSE stock.",
+        parameters={
+            "type": "object",
+            "properties": {
+                'symbol': {"type": "string", "description": "NSE stock symbol (format: NSE_EQ|<isin_code>)"},
+                'quantity': {"type": "integer", "description": "Number of shares to buy"}
+            },
+            "required": ['symbol', 'quantity']
+        }
+    ),
+    FunctionDeclaration(
+        name="place_sell_order",
+        description="Places a sell order for a specified quantity of an NSE stock.",
+        parameters={
+            "type": "object",
+            "properties": {
+                'symbol': {"type": "string", "description": "NSE stock symbol (format: NSE_EQ|<isin_code>)"},
+                'quantity': {"type": "integer", "description": "Number of shares to sell"}
+            },
+            "required": ['symbol', 'quantity']
+        }
+    ),
+    FunctionDeclaration(
+        name="get_portfolio",
+        description="Retrieves the current user's portfolio holdings.",
+        parameters={"type": "object", "properties": {}}
+    ),
+    FunctionDeclaration(
+        name="get_current_price",
+        description="Retrieves the current market price for a given NSE stock symbol.",
+        parameters={
+            "type": "object",
+            "properties": {
+                'symbol': {"type": "string", "description": "NSE stock symbol (format: NSE_EQ|<isin_code>)"}
+            },
+            "required": ['symbol']
+        }
+    ),
+    FunctionDeclaration(
+        name= "get_isin_for_symbol",
+        description= "Retrieves the International Securities Identification Number (ISIN) for a given stock ticker symbol using the Financial Modeling Prep (FMP) API. Can optionally filter by a specific stock exchange.",
+        parameters= {
+           "type": "object",
+           "properties": {
+           "stock_symbol": {
+            "type": "string",
+            "description": "The stock ticker symbol to look up (e.g., 'AAPL', 'MSFT', 'GOOGL')."
+          },
+          "exchange": {
+            "type": "string",
+            "description": "Optional: The specific stock exchange (e.g., 'NASDAQ', 'NYSE', 'LSE') where the stock symbol trades. Helps narrow down results if the symbol exists on multiple exchanges."
+          }
+        },
+        "required": ['stock_symbol']
+      }
+    ),
+    FunctionDeclaration(
+        name="get_isin_from_csv",
+        description="Retrieves the ISIN code for a given NSE stock symbol from the local database.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "The stock symbol to look up (e.g., 'RELIANCE', 'TCS', 'INFY')."
+                }
+            },
+            "required": ['symbol']
+        }
+    )
+
+]
+
+# Map function names to actual Python functions
+available_functions = {
+    "get_market_data": get_market_data_wrapper,
+    "place_buy_order": place_buy_order_wrapper,
+    "place_sell_order": place_sell_order_wrapper,
+    "get_portfolio": get_portfolio_wrapper,
+    "get_current_price": get_current_price_wrapper,
+    "get_isin_for_symbol":get_isin_for_symbol_wrapper,
+    "get_isin_from_csv": get_isin_from_csv_wrapper
+}
+
+# System prompt (can be included in the 'contents' or potentially a separate param if supported)
+# Note: System prompts in generate_content are handled differently than in GenerativeModel.
+# Often, you prepend it to the 'contents' list with role 'system'.
+system_prompt_text = """
+You are a trading assistant that helps users analyze stocks and execute trades on NSE India.
+
+Before calling any function that requires a stock symbol, you MUST find the accurate ISIN code using:
+ get_isin_from_csv - Look up symbol in local database (faster, NSE symbols only), VERY IMPORTANT:search for the exact symbol given by the user ONLY
+Example: If the user asks about Reliance and csv search reveals ISIN INE002A01018, use "NSE_EQ|INE002A01018" in function calls.
+
+Use the available functions to fulfill user requests for market data, trading, portfolio information, and current prices. Always use the correct NSE_EQ|<isin_code> format for symbols.
+
+After executing a function, present the result clearly to the user, along with any relevant analysis or confirmation. If search fails to find an ISIN, inform the user.
+"""
+
+def trading_assistant(user_input):
+    """Process user input using client.models.generate_content."""
+    setup_environment_api_key()
+    client = genai.Client()
+    model_id = "gemini-2.5-flash-preview-04-17"
+
+    # Tool Configuration
+    function_tool = Tool(function_declarations=function_declarations)
+    all_tools = [function_tool]
+
+    print(f"\nUser Input: {user_input}")
+
+    # Initialize conversation history
+    conversation = [
+        {"role": "user", "parts": [{"text": user_input}]}
+    ]
+
+    while True:
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=conversation,
+                config=GenerateContentConfig(
+                    tools=all_tools,
+                    system_instruction=system_prompt_text
+                )
+            )
+
+            if not response or not response.candidates:
+                print("Error: Empty response from Gemini")
+                return "I apologize, but I received an empty response. Please try again."
+
+            candidate = response.candidates[0]
+            if not candidate.content or not candidate.content.parts:
+                print("Error: Empty content/parts in response")
+                return "I apologize, but I received an invalid response. Please try again."
+
+            first_part = candidate.content.parts[0]
+            conversation.append({"role": "model", "parts": candidate.content.parts})
+
+            # Check for function call
+            if hasattr(first_part, 'function_call') and first_part.function_call and first_part.function_call.name:
+                function_call = first_part.function_call
+                function_name = function_call.name
+                args = function_call.args
+                print(f"Gemini requested function call: {function_name}({dict(args)})")
+
+                if function_name not in available_functions:
+                    error_msg = f"Function '{function_name}' is not available"
+                    print(f"Error: {error_msg}")
+                    conversation.append({
+                        "role": "function",
+                        "parts": [{
+                            "function_response": {
+                                "name": function_name,
+                                "response": {"error": error_msg}
+                            }
+                        }]
+                    })
+                    continue
+
+                try:
+                    function_response_data = available_functions[function_name](**dict(args))
+                    conversation.append({
+                        "role": "function",
+                        "parts": [{
+                            "function_response": {
+                                "name": function_name,
+                                "response": {"result": function_response_data}
+                            }
+                        }]
+                    })
+                    print(f"Function {function_name} executed successfully")
+                except Exception as e:
+                    error_msg = f"Error executing {function_name}: {str(e)}"
+                    print(f"Error: {error_msg}")
+                    conversation.append({
+                        "role": "function",
+                        "parts": [{
+                            "function_response": {
+                                "name": function_name,
+                                "response": {"error": error_msg}
+                            }
+                        }]
+                    })
+                continue
+
+            # Extract final text response
+            final_text = ""
+            for part in candidate.content.parts:
+                if hasattr(part, 'text') and part.text is not None:
+                    final_text += part.text
+
+            if not final_text.strip():
+                print("Warning: Empty text response")
+                return "I apologize, but I couldn't generate a proper response. Please try again."
+
+            print(f"Gemini Final Response: {final_text}")
+            return final_text
+
+        except Exception as e:
+            error_msg = f"Error processing response: {str(e)}"
+            print(error_msg)
+            print(f"Raw response: {response}")
+            return f"I encountered an error while processing your request: {error_msg}"
