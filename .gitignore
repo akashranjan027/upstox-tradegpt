@@ -41,4 +41,5 @@ config/*.json
 
 # OS specific files
 .DS_Store
-Thumbs.db NSE-cm03MAY2021bhav.csv
+Thumbs.db 
+NSE-cm03MAY2021bhav.csv
