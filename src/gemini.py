@@ -9,61 +9,180 @@ import json
 import os
 import csv
 import requests
+# The direct imports below might still be used by other functions or for other purposes.
+# For the wrapped functions, we'll be using requests to call MCP servers.
 from . import market_data, trading # Assuming these modules exist
 
 # --- Function Definitions for Gemini ---
-# (Keep your wrapper functions: get_market_data_wrapper, etc.)
-# ... (wrapper functions remain the same) ...
-def get_market_data_wrapper(symbol: str, days: int = 30):
+
+def get_market_data_wrapper(symbol: str, days: int = 30, **kwargs):
     """
-    Retrieves historical market data for a given NSE stock symbol.
+    Retrieves historical market data for a given NSE stock symbol via MCP server.
     Input:
        - symbol: NSE stock symbol (format: NSE_EQ|<isin_code>)
        - days: Number of days of historical data (default 30)
+       - kwargs: Can include 'timeframe'
     Returns: Historical market data for analysis.
     """
-    print(f"--- Calling get_market_data(symbol={symbol}, days={days}) ---")
-    return market_data.get_market_data(symbol=symbol, days=days)
+    timeframe = kwargs.get("timeframe", "1d")
+    print(f"--- Calling MCP: get_market_data(symbol={symbol}, days={days}, timeframe={timeframe}) ---")
+    payload = {"symbol": symbol, "days": days, "timeframe": timeframe}
+    try:
+        response = requests.get(
+            "http://localhost:5001/mcp/market/get_historical_data",
+            params=payload,
+            timeout=15
+        )
+        response.raise_for_status()  # Raises HTTPError for 4xx/5xx responses
+        return response.json()
+    except requests.exceptions.HTTPError as http_err:
+        error_msg = f"HTTP error calling MCP get_market_data: {http_err} - Response: {http_err.response.text if http_err.response else 'No response'}"
+        print(error_msg)
+        return {"error": error_msg}
+    except requests.exceptions.RequestException as req_err: # Catches network errors, timeouts, etc.
+        error_msg = f"Request error calling MCP get_market_data: {str(req_err)}"
+        print(error_msg)
+        return {"error": error_msg}
+    except json.JSONDecodeError:
+        error_msg = "Invalid JSON response from MCP get_market_data"
+        print(error_msg)
+        return {"error": error_msg}
 
-def place_buy_order_wrapper(symbol: str, quantity: int):
+def place_buy_order_wrapper(symbol: str, quantity: int, **kwargs):
     """
-    Places a buy order for a specified quantity of an NSE stock.
+    Places a buy order for a specified quantity of an NSE stock via MCP server.
     Input:
        - symbol: NSE stock symbol (format: NSE_EQ|<isin_code>)
        - quantity: Number of shares to buy
+       - kwargs: Can include 'order_type' and 'price'
     Returns: Order confirmation details.
     """
-    print(f"--- Calling place_buy_order(symbol={symbol}, quantity={quantity}) ---")
-    return trading.place_buy_order(symbol=symbol, quantity=quantity)
+    order_type = kwargs.get("order_type", "MARKET")
+    price = kwargs.get("price")
+    print(f"--- Calling MCP: place_buy_order(symbol={symbol}, quantity={quantity}, order_type={order_type}, price={price}) ---")
+    payload = {
+        "symbol": symbol,
+        "quantity": quantity,
+        "order_type": order_type,
+        "price": price
+    }
+    try:
+        response = requests.post(
+            "http://localhost:5002/mcp/trading/place_buy_order",
+            headers={'Content-Type': 'application/json'},
+            data=json.dumps(payload),
+            timeout=15
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as http_err:
+        error_msg = f"HTTP error calling MCP place_buy_order: {http_err} - Response: {http_err.response.text if http_err.response else 'No response'}"
+        print(error_msg)
+        return {"error": error_msg}
+    except requests.exceptions.RequestException as req_err:
+        error_msg = f"Request error calling MCP place_buy_order: {str(req_err)}"
+        print(error_msg)
+        return {"error": error_msg}
+    except json.JSONDecodeError:
+        error_msg = "Invalid JSON response from MCP place_buy_order"
+        print(error_msg)
+        return {"error": error_msg}
 
-def place_sell_order_wrapper(symbol: str, quantity: int):
+def place_sell_order_wrapper(symbol: str, quantity: int, **kwargs):
     """
-    Places a sell order for a specified quantity of an NSE stock.
+    Places a sell order for a specified quantity of an NSE stock via MCP server.
     Input:
        - symbol: NSE stock symbol (format: NSE_EQ|<isin_code>)
        - quantity: Number of shares to sell
+       - kwargs: Can include 'order_type' and 'price'
     Returns: Order confirmation details.
     """
-    print(f"--- Calling place_sell_order(symbol={symbol}, quantity={quantity}) ---")
-    return trading.place_sell_order(symbol=symbol, quantity=quantity)
+    order_type = kwargs.get("order_type", "MARKET")
+    price = kwargs.get("price")
+    print(f"--- Calling MCP: place_sell_order(symbol={symbol}, quantity={quantity}, order_type={order_type}, price={price}) ---")
+    payload = {
+        "symbol": symbol,
+        "quantity": quantity,
+        "order_type": order_type,
+        "price": price
+    }
+    try:
+        response = requests.post(
+            "http://localhost:5002/mcp/trading/place_sell_order",
+            headers={'Content-Type': 'application/json'},
+            data=json.dumps(payload),
+            timeout=15
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as http_err:
+        error_msg = f"HTTP error calling MCP place_sell_order: {http_err} - Response: {http_err.response.text if http_err.response else 'No response'}"
+        print(error_msg)
+        return {"error": error_msg}
+    except requests.exceptions.RequestException as req_err:
+        error_msg = f"Request error calling MCP place_sell_order: {str(req_err)}"
+        print(error_msg)
+        return {"error": error_msg}
+    except json.JSONDecodeError:
+        error_msg = "Invalid JSON response from MCP place_sell_order"
+        print(error_msg)
+        return {"error": error_msg}
 
-def get_portfolio_wrapper():
+def get_portfolio_wrapper(**kwargs): # Added **kwargs for consistency, though not used by MCP
     """
-    Retrieves the current user's portfolio holdings.
+    Retrieves the current user's portfolio holdings via MCP server.
     Returns: Current portfolio holdings.
     """
-    print("--- Calling get_portfolio() ---")
-    return trading.get_portfolio()
+    print("--- Calling MCP: get_portfolio() ---")
+    try:
+        response = requests.get(
+            "http://localhost:5002/mcp/trading/get_portfolio",
+            timeout=15
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as http_err:
+        error_msg = f"HTTP error calling MCP get_portfolio: {http_err} - Response: {http_err.response.text if http_err.response else 'No response'}"
+        print(error_msg)
+        return {"error": error_msg}
+    except requests.exceptions.RequestException as req_err:
+        error_msg = f"Request error calling MCP get_portfolio: {str(req_err)}"
+        print(error_msg)
+        return {"error": error_msg}
+    except json.JSONDecodeError:
+        error_msg = "Invalid JSON response from MCP get_portfolio"
+        print(error_msg)
+        return {"error": error_msg}
 
-def get_current_price_wrapper(symbol: str):
+def get_current_price_wrapper(symbol: str, **kwargs): # Added **kwargs for consistency
     """
-    Retrieves the current market price for a given NSE stock symbol.
+    Retrieves the current market price for a given NSE stock symbol via MCP server.
     Input:
        - symbol: NSE stock symbol (format: NSE_EQ|<isin_code>)
     Returns: Current market price.
     """
-    print(f"--- Calling get_current_price(symbol={symbol}) ---")
-    return market_data.get_current_price(symbol=symbol)
+    print(f"--- Calling MCP: get_current_price(symbol={symbol}) ---")
+    payload = {"symbol": symbol}
+    try:
+        response = requests.get(
+            "http://localhost:5001/mcp/market/get_current_price",
+            params=payload,
+            timeout=15
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as http_err:
+        error_msg = f"HTTP error calling MCP get_current_price: {http_err} - Response: {http_err.response.text if http_err.response else 'No response'}"
+        print(error_msg)
+        return {"error": error_msg}
+    except requests.exceptions.RequestException as req_err:
+        error_msg = f"Request error calling MCP get_current_price: {str(req_err)}"
+        print(error_msg)
+        return {"error": error_msg}
+    except json.JSONDecodeError:
+        error_msg = "Invalid JSON response from MCP get_current_price"
+        print(error_msg)
+        return {"error": error_msg}
 
 
 def get_isin_for_symbol_wrapper(stock_symbol: str, exchange: str = None):
